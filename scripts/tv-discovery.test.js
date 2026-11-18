@@ -59,10 +59,13 @@ function element() {
 }
 
 // alive: CouchSubs'ın çalıştığı adresler ("http://ip:8787"). localIp: TV'nin söylediği kendi adresi (yoksa null).
-function startTv({ saved, alive, localIp, hasLocalAddress }) {
+// consolePort: platform.findConsolePort'un yanıtı ([port, ad, bağlı HDMI sayısı]); savedHdmi: kayıtlı giriş.
+function startTv({ saved, alive, localIp, hasLocalAddress, consolePort, savedHdmi }) {
   const clock = makeClock();
   const storage = new Map();
   if (saved) storage.set('couchsubs.server', saved);
+  if (savedHdmi) storage.set('couchsubs.hdmi', String(savedHdmi));
+  const documentListeners = {};
   const elements = new Map();
   const opened = [];
   const streams = [];
@@ -116,8 +119,9 @@ function startTv({ saved, alive, localIp, hasLocalAddress }) {
     init() {},
     launchParams: () => null,
     onRelaunch() {},
-    showHdmi() {},
-    findConsolePort(cb) { cb(1, 'PS5'); }
+    // TV görüntüyü kısa süre sonra verir (Samsung TVWindow'un yanıtı gibi).
+    showHdmi(port, host, onStatus) { clock.setTimeout(() => onStatus('playing'), 30); },
+    findConsolePort(cb) { clock.setTimeout(() => cb.apply(null, consolePort || [1, 'PS5']), 20); }
   };
   if (hasLocalAddress) platform.localAddress = (cb) => clock.setTimeout(() => cb(localIp || null), 10);
 
@@ -131,7 +135,7 @@ function startTv({ saved, alive, localIp, hasLocalAddress }) {
     querySelectorAll: () => [],
     createElement: element,
     createTextNode: () => ({}),
-    addEventListener() {}
+    addEventListener(name, fn) { (documentListeners[name] = documentListeners[name] || []).push(fn); }
   };
 
   const FakeDate = class extends Date {};
@@ -174,7 +178,12 @@ function startTv({ saved, alive, localIp, hasLocalAddress }) {
       const source = streams[streams.length - 1];
       for (const fn of source.listeners[name] || []) fn({ data: JSON.stringify(data) });
     },
-    server: () => elements.get('st-server') && elements.get('st-server').textContent
+    server: () => elements.get('st-server') && elements.get('st-server').textContent,
+    savedHdmi: () => storage.get('couchsubs.hdmi'),
+    // Kumanda tuşu.
+    key(keyCode) {
+      for (const fn of documentListeners.keydown || []) fn({ keyCode, preventDefault() {} });
+    }
   };
 }
 
@@ -270,4 +279,56 @@ test('yeri bilinmeyen ya da bozuk ek alan olayı bir şey göstermez', () => {
   tv.emit('region', { id: 'q', text: 'Merhaba' });
   tv.emit('region', { text: 'Kimliksiz', box: { left: 0.1, top: 0.1, right: 0.2, bottom: 0.2 } });
   assert.strictEqual(tv.element('regions').children.length, 0);
+});
+
+// #360: Samsung girişteki cihazın adını vermez; birden çok HDMI bağlıyken TV'nin o anki girişi seçiliyordu ve bilgisayar
+// da TV'ye bağlıyken uygulama Xbox yerine bilgisayarın ekranını gösteriyordu.
+const tr = { title: 'Konsol hangi HDMI girişinde?' };
+
+test('birden çok HDMI bağlıyken tahmin edilen giriş kullanıcıya sorulur, görüntü gelince kutu kapanmaz', () => {
+  const tv = startTv({ alive: new Set(), hasLocalAddress: false, consolePort: [2, 'HDMI 2', 2] });
+  tv.clock.advance(1000);
+  assert.strictEqual(tv.element('no-picture').className, '');
+  assert.strictEqual(tv.element('no-picture-title').textContent, tr.title);
+  assert.match(tv.element('no-picture-text').textContent, /HDMI 2 açıldı/);
+  // "Hâlâ siyah mı" açıklaması bu kutuda gösterilmez.
+  assert.strictEqual(tv.element('no-picture-help').style.display, 'none');
+  // Açık olandan sonraki giriş (HDMI 3) seçili gelir; Tamam ile seçilir ve kaydedilir.
+  tv.element('source-tip').className = 'hidden';
+  tv.key(13);
+  assert.strictEqual(tv.savedHdmi(), '3');
+  assert.strictEqual(tv.element('no-picture').className, 'hidden');
+});
+
+test('birden çok HDMI bağlı ve konsol bulunamadıysa da giriş sorulur', () => {
+  const tv = startTv({ alive: new Set(), hasLocalAddress: false, consolePort: [null, null, 3] });
+  tv.clock.advance(1000);
+  assert.strictEqual(tv.element('no-picture').className, '');
+  assert.strictEqual(tv.element('no-picture-title').textContent, tr.title);
+});
+
+test('tek HDMI bağlıyken ya da platform sayı bildirmezken giriş sorulmaz', () => {
+  for (const consolePort of [[1, 'HDMI 1', 1], [3, 'PS5']]) {
+    const tv = startTv({ alive: new Set(), hasLocalAddress: false, consolePort });
+    tv.clock.advance(1000);
+    assert.notStrictEqual(tv.element('no-picture').className, '');
+  }
+});
+
+test('kayıtlı giriş varsa konsol aranmaz, giriş sorulmaz', () => {
+  const tv = startTv({ alive: new Set(), hasLocalAddress: false, consolePort: [2, 'HDMI 2', 2], savedHdmi: 3 });
+  tv.clock.advance(1000);
+  assert.notStrictEqual(tv.element('no-picture').className, '');
+});
+
+test('0 tuşu kaydı unutup konsolu yeniden arar; birden çok HDMI bağlıysa giriş sorulur', () => {
+  const tv = startTv({ alive: new Set(), hasLocalAddress: false, consolePort: [2, 'HDMI 2', 2], savedHdmi: 3 });
+  tv.clock.advance(1000);
+  tv.key(48);
+  tv.clock.advance(1000);
+  assert.strictEqual(tv.element('no-picture').className, '');
+  // Sayı tuşuyla seçim kutuyu kapatır.
+  tv.key(50);
+  assert.strictEqual(tv.savedHdmi(), '2');
+  assert.strictEqual(tv.element('no-picture').className, 'hidden');
 });

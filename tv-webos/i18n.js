@@ -43,7 +43,9 @@
       noPictureChoose: 'PS5 başka girişe bağlıysa aşağıdan seçin (◀▶ ve Tamam, ya da 1–4 sayı tuşları).',
       noPictureStillBlack: 'Doğru girişte de siyah mı? PS5\'te HDR açıksa kapatın (Ayarlar › Ekran ve Video › Video Çıkışı › HDR: Kapalı): Uzaktan Oynatma açıkken HDR görüntü kararabiliyor. Olmazsa bu TV HDMI görüntüsünü uygulamalara vermiyor ya da HDCP engelliyordur: PS5\'te Ayarlar › Sistem › HDMI › HDCP\'yi Etkinleştir\'i kapatmayı deneyin. Olmazsa CouchSubs\'tan çıkın, TV\'yi kumandadan PS5\'in HDMI girişine alın ve altyazıyı telefon ya da bilgisayar ekranından izleyin.',
       noPictureExit: 'Çık, TV girişine dön',
-      noPictureClose: 'Kapat'
+      noPictureClose: 'Kapat',
+      pickInputTitle: 'Konsol hangi HDMI girişinde?',
+      pickInput: 'TV\'ye birden çok HDMI cihazı bağlı; HDMI %1 açıldı. Arkada oyun yerine bilgisayarın ya da başka bir cihazın görüntüsü varsa konsolun (PS5, Xbox) girişini aşağıdan seçin (◀▶ ve Tamam, ya da 1–4 sayı tuşları). Seçiminiz hatırlanır.'
     },
     en: {
       waiting: 'Open CouchSubs on your phone (or computer) and start translating.',
@@ -83,7 +85,9 @@
       noPictureChoose: 'If the PS5 is on another input, choose it below (◀▶ and OK, or number keys 1–4).',
       noPictureStillBlack: 'Still black on the right input? If HDR is on, turn it off on the PS5 (Settings › Screen and Video › Video Output › HDR: Off): with Remote Play active an HDR picture can turn dark. Otherwise this TV may not hand its HDMI picture to apps, or HDCP blocks it: try turning off Settings › System › HDMI › Enable HDCP on the PS5. Otherwise exit CouchSubs, switch the TV to the PS5\'s HDMI input with the remote and read the subtitles on your phone or computer.',
       noPictureExit: 'Exit to the TV input',
-      noPictureClose: 'Close'
+      noPictureClose: 'Close',
+      pickInputTitle: 'Which HDMI input is the console on?',
+      pickInput: 'More than one HDMI device is connected to the TV; HDMI %1 is open. If you see the computer or another device instead of the game, choose the console\'s (PS5, Xbox) input below (◀▶ and OK, or number keys 1–4). Your choice is remembered.'
     }
   };
 

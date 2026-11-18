@@ -110,7 +110,10 @@
       });
     },
 
-    // Tek bağlı HDMI varsa odur; birden çoksa TV'nin o anki girişi tercih edilir.
+    // Tek bağlı HDMI varsa odur; birden çoksa TV'nin o anki girişi tercih edilir. Tizen girişteki cihazın adını
+    // vermez, bu yüzden birden çok bağlı girişte seçim tahmindir: üçüncü değer bağlı HDMI sayısıdır, app.js bu
+    // durumda kullanıcıya girişi sorar. Bilgisayar da TV'ye HDMI ile bağlıyken TV'nin o anki girişi bilgisayarınki
+    // oluyordu; TV uygulaması Xbox yerine bilgisayarın ekranını gösteriyor, altyazı oyunun üstüne çıkmıyordu (#360).
     findConsolePort: function (callback) {
       hdmiSources(function (connected) {
         var pick = connected.length === 1 ? connected[0] : null;
@@ -120,7 +123,7 @@
             pick = connected.filter(function (s) { return s.number === current.number && current.type === 'HDMI'; })[0] || null;
           } catch (e) {}
         }
-        callback(pick ? pick.number : null, pick ? 'HDMI ' + pick.number : null);
+        callback(pick ? pick.number : null, pick ? 'HDMI ' + pick.number : null, connected.length);
       });
     },
 
