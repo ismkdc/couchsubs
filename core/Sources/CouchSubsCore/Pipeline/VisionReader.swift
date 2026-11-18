@@ -43,8 +43,13 @@ public struct VisionReader: TextReader {
     }
 
     /// Vision geniş bölgede "Go!" gibi kısa satırları sık sık hiç bulmaz. Bölgede yazı çıkmazsa
-    /// ortadaki şerit (altyazılar ortalıdır) ve bölgenin tamamı büyütülerek aynı anda yeniden okunur;
-    /// ikisi de yazı bulursa şeridinki seçilir. Aynı anda okumak, boş karede yeni satırı geç fark etmeyi önler.
+    /// ortadaki şerit (altyazılar ortalıdır), sonra bölgenin tamamı büyütülerek yeniden okunur;
+    /// yazı bulan ilk okuma kullanılır.
+    ///
+    /// İkisi **sırayla** okunur: Vision'ın metin tanıma kuyruğu (`VNCRImageReaderDetector`) seridir ve
+    /// iki istek aynı anda verildiğinde biri kuyrukta beklerken diğeri hiç dönmeyebiliyordu. Boş karede
+    /// iki okuma paralel başlayınca okuma 15 saniyeyi aşıyor, hat sürekli yeniden kuruluyor ve altyazı
+    /// bir daha gelmiyordu (#OCR takılması).
     public static func firstLines(of image: CGImage, using recognize: @escaping @Sendable (CGImage) throws -> Reading) throws -> Reading {
         let reading = try recognize(image)
         guard reading.lines.isEmpty else { return reading }
@@ -52,35 +57,32 @@ public struct VisionReader: TextReader {
         // Şeritte bulunan satırın yeri şeridin değil bölgenin tamamının oranlarıyla verilir.
         let strip = stripRect(of: image, widthFraction: 0.4)
         let stripArea = TextBox(left: strip.minX / Double(image.width), top: 0, right: strip.maxX / Double(image.width), bottom: 1)
-        let fallbacks: [@Sendable () throws -> Reading?] = [
-            { try image.cropping(to: strip).flatMap { scaled($0, by: 2) }.map { try recognize($0).placed(in: stripArea) } },
-            { try scaled(image, by: 2).map(recognize) },
-        ]
-        let results = Results(count: fallbacks.count)
-        DispatchQueue.concurrentPerform(iterations: fallbacks.count) { index in
-            results.set(index, Result { try fallbacks[index]() ?? .empty })
+        if let found = try image.cropping(to: strip).flatMap({ scaled($0, by: 2) }).map({ try recognize($0).placed(in: stripArea) }),
+           !found.lines.isEmpty {
+            return found
         }
-        for result in results.all {
-            if let reading = try result?.get(), !reading.lines.isEmpty { return reading }
+        // Bölgenin tamamı: büyütme uzun kenarı `maxFallbackDimension` ile sınırlanır; 4K bir bölgenin
+        // iki katına çıkarılması tek başına saniyeler sürüyordu.
+        if let found = try scaled(image, by: 2, maxDimension: Self.maxFallbackDimension).map(recognize), !found.lines.isEmpty {
+            return found
         }
         return .empty
     }
 
-    /// Aynı anda yapılan okumaların sonuçları.
-    private final class Results: @unchecked Sendable {
-        private let lock = NSLock()
-        private var values: [Result<Reading, Error>?]
-        init(count: Int) { values = Array(repeating: nil, count: count) }
-        func set(_ index: Int, _ value: Result<Reading, Error>) { lock.withLock { values[index] = value } }
-        var all: [Result<Reading, Error>?] { lock.withLock { values } }
-    }
+    /// Yedek okumada büyütülmüş görüntünün uzun kenarı (piksel). Altyazı için fazlasıyla yeterli.
+    static let maxFallbackDimension = 1920
+
+    /// Vision'ın metin tanıma hattı süreç genelinde tek sıraya alınır: altyazı okuması, ek alanlar ve
+    /// önizleme aynı anda istek verdiğinde Vision'ın iç kuyruğu (`VNCRImageReaderDetector`) kilitlenip
+    /// okuma hiç dönmeyebiliyordu. Tek sıra, kareyi bekletir ama hattı kilitlemez.
+    private static let visionQueue = DispatchQueue(label: "com.couchsubs.vision.ocr")
 
     private func recognize(_ image: CGImage) throws -> Reading {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = [language]
         request.usesLanguageCorrection = true
-        try VNImageRequestHandler(cgImage: image).perform([request])
+        try Self.visionQueue.sync { try VNImageRequestHandler(cgImage: image).perform([request]) }
         let lines = (request.results ?? [])
             .compactMap { observation -> TextLine? in
                 guard let candidate = observation.topCandidates(1).first, candidate.confidence >= 0.5 else { return nil }
@@ -99,8 +101,15 @@ public struct VisionReader: TextReader {
         return CGRect(x: (Double(image.width) - width) / 2, y: 0, width: width, height: Double(image.height)).integral
     }
 
-    private static func scaled(_ image: CGImage, by factor: Int) -> CGImage? {
-        let width = image.width * factor, height = image.height * factor
+    private static func scaled(_ image: CGImage, by factor: Int, maxDimension: Int? = nil) -> CGImage? {
+        var scale = factor
+        if let maxDimension {
+            let longest = max(image.width, image.height)
+            if longest > 0, longest * scale > maxDimension {
+                scale = max(1, maxDimension / longest)
+            }
+        }
+        let width = image.width * scale, height = image.height * scale
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .high
