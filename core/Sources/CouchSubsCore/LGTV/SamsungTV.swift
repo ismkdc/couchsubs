@@ -217,15 +217,24 @@ public enum SamsungDiscovery {
 
     public static func search(timeout: Duration = .seconds(3)) async -> [LGTV] {
         let hosts = await Task.detached { LGDiscovery.collectHosts(searchTarget: searchTarget, timeout: timeout) }.value
+        // SSDP'ye cevap veren her Samsung cihazı TV değil: soundbar da aynı hedefi yanıtlıyor ama 8001'de
+        // kendini tanıtmıyor. Yalnız 8001/api/v2/ yanıtını verenler TV sayılır; aksi hâlde uygulama
+        // yanlış cihazı listeliyor ve "TV yanıt vermedi" diyordu.
         var tvs: [LGTV] = []
         for host in Set(hosts).sorted() {
-            tvs.append(LGTV(name: await name(host: host) ?? "Samsung TV", host: host, brand: .samsung))
+            if let name = await name(host: host) {
+                tvs.append(LGTV(name: name, host: host, brand: .samsung))
+            }
         }
         if !tvs.isEmpty { return tvs }
 
-        // SSDP yanıtı gelmediyse (bazı modemler ve TV'ler çok noktaya yayını geçirmez) ağdaki adresler tek tek denenir:
-        // Samsung TV 8001 portunda kendi adını veren bir arayüz sunar.
-        return await scan()
+        // SSDP'den TV çıkmadıysa (yalnız başka bir Samsung cihazı cevapladı ya da çok noktaya yayın geçmiyor)
+        // ağdaki adresler tek tek denenir: Samsung TV 8001 portunda kendi adını veren bir arayüz sunar.
+        let scanned = await scan()
+        if !scanned.isEmpty { return scanned }
+
+        // 8001 kapalı ama SSDP'ye cevap veren bir TV de olabilir: adı bilinmeyen olarak listelenir.
+        return Set(hosts).sorted().map { LGTV(name: "Samsung TV", host: $0, brand: .samsung) }
     }
 
     private static func scan() async -> [LGTV] {
